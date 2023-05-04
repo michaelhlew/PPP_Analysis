@@ -1,0 +1,99 @@
+---
+title: "Ridge Regression"
+format: html
+editor: visual
+---
+
+```{r}
+library(tidyverse)
+library(MASS)
+library(boot)
+library(leaps)
+library(glmnet)
+library(pls)
+df <- read_csv("PPP details.csv")
+glimpse(df)
+```
+
+```{r}
+names(df)
+df |>
+  mutate(sum = rowSums(df[,c(7,14)], na.rm = T)) %>%
+  dplyr::select(`Loan amount`, sum) 
+
+df |>
+  mutate(sum = rowSums(df[,c(7,14)], na.rm = T)) %>%
+  dplyr::select(`Loan amount`, sum) %>%
+  count(`Loan amount` == sum)
+```
+
+```{r}
+ppp <- df |>
+  dplyr::select( 
+    `Amount forgiven`, 
+    Payroll, 
+    Rent, 
+    Utilities, 
+    `Health Care`, 
+    `Mortgage Interest`, 
+    `Debt Interest`, 
+    `Refinancing EIDL`, 
+    `Business type`, 
+    Industry, 
+    `Age of business`, 
+    `Borrower zip`, 
+    `Jobs reported`, 
+    Gender, Race
+  ) |>
+  mutate(Industry = as_factor(Industry),
+         `Age of business` = as_factor(`Age of business`),
+         `Business type` = as_factor(`Business type`),
+         Gender = as_factor(Gender),
+         Race = as_factor(Race),
+         `Borrower zip` = as.factor(str_remove(`Borrower zip`, "-.+"))) |>
+  na.omit()
+
+glimpse(ppp)
+summary(ppp)
+```
+
+```{r}
+car::vif(lm(`Amount forgiven` ~ ., ppp))
+```
+
+```{r}
+X <- model.matrix(lm(`Amount forgiven` ~ ., ppp))[,-1]
+
+set.seed(1234)
+ridge_ppp <- cv.glmnet(X, ppp$`Amount forgiven`, alpha = 0)
+plot(ridge_ppp)
+ridge_ppp$lambda.min
+min(ridge_ppp$cvm)
+```
+
+```{r}
+# Lasso Regression
+set.seed(1234)
+lasso_ppp <- cv.glmnet(X, ppp$`Amount forgiven`, alpha = 1)
+plot(lasso_ppp)
+lasso_ppp$lambda.min
+min(lasso_ppp$cvm)
+coef(lasso_ppp)
+```
+
+```{r}
+set.seed(1234)
+pcr_ppp <-  pcr(`Amount forgiven` ~ ., data = ppp, validation = "CV")
+#summary(pcr_ppp)
+screeplot(prcomp(model.matrix(lm(`Amount forgiven` ~ ., data = ppp))))
+which.min(as.numeric(MSEP(pcr_ppp, estimate = "CV")$val)) - 1
+min(as.numeric(MSEP(pcr_ppp, estimate = "CV")$val))
+```
+
+```{r}
+set.seed(1234)
+pls_ppp <-  plsr(`Amount forgiven` ~ ., data = ppp, validation = "CV")
+#summary(pls_ppp)
+which.min(as.numeric(MSEP(pls_ppp, estimate = "CV")$val)) - 1
+min(as.numeric(MSEP(pls_ppp, estimate = "CV")$val))
+```

@@ -1,0 +1,90 @@
+---
+title: "stepwise_regression"
+format: html
+editor: visual
+---
+
+```{r}
+library(tidyverse)
+```
+
+```{r}
+df <- read_csv("project_plan/PPP details.csv")
+```
+```{r}
+# Variables of interest
+df %>% 
+  select(`Loan amount`, `Amount forgiven`, Payroll, Rent, Utilities, 
+         `Health Care`, `Mortgage Interest`, `Debt Interest`, `Refinancing EIDL`,
+         `Business type`, Industry, `Age of business`, `Jobs reported`, Gender,
+         Race) %>% 
+  mutate(Industry = as_factor(Industry),
+         `Age of business` = as_factor(`Age of business`),
+         Gender = as_factor(Gender),
+         Race = as_factor(Race)) %>% 
+  na.omit() -> df2
+```
+
+```{r}
+# Setpwise selection
+library(leaps)
+set.seed(2023)
+reg_full <- lm(`Amount forgiven` ~., data = df2)
+reg_null <- lm(`Amount forgiven` ~1, data = df2)
+step_out <- step(reg_null, 
+                 scope = list(lower = reg_null, upper = reg_full),
+                 method = "forward")
+summary(step_out)
+```
+
+```{r}
+# LM model using CV
+set.seed(2023)
+
+
+lm(`Amount forgiven` ~ `Loan amount` + `Mortgage Interest` + 
+    `Jobs reported` + Rent + `Health Care` + Payroll, 
+    data = df2) -> lm_cv
+mse = mean(lm_cv$residuals^2)
+summary(lm_cv)
+mse # huge error
+```
+
+```{r}
+mean(df2$`Amount forgiven`)
+```
+
+# Lasso
+
+```{r}
+set.seed(2023)
+train = sample(nrow(df2), .75*nrow(df2))
+# design matrix for train and test
+train_lm <- lm(`Amount forgiven` ~  `Loan amount` + `Mortgage Interest` + 
+    `Jobs reported` + Rent + `Health Care` + Payroll, data = df2, subset = train, x = TRUE)
+design_matrix_train <- train_lm$x[,-1]
+dim(design_matrix_train)
+
+# design matrix for test
+test_lm <- lm(`Amount forgiven` ~  `Loan amount` + `Mortgage Interest` + 
+    `Jobs reported` + Rent + `Health Care` + Payroll, data = df2[-train,], x = TRUE)
+design_matrix_test <- test_lm$x[,-1]
+dim(design_matrix_test)
+```
+
+```{r}
+library(glmnet)
+set.seed(1234)
+x <- design_matrix_train
+y <- df2[train,]$`Amount forgiven`
+lasso_cv <- cv.glmnet(x, y)
+```
+
+```{r}
+set.seed(2023)
+# using default lamda1se 
+lasso_pred <- predict(lasso_cv, newx=design_matrix_test)
+lasso_prediction_mse <- mean((lasso_pred - df2[-train,]$`Amount forgiven`)^2)
+lasso_prediction_mse # higher than LM
+```
+

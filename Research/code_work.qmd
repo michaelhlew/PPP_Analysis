@@ -1,0 +1,216 @@
+---
+title: "Peter code work"
+format: html
+editor: visual
+---
+
+```{r message=FALSE}
+library(tidyverse)
+library(car)
+library(class)
+library(tree)
+library(randomForest)
+```
+
+```{r message=FALSE}
+getwd()
+
+ppp <- read_csv("PPP details.csv")
+
+# trial
+```
+
+```{r}
+# Reclassifying `Business Type` per tax code
+
+df <- ppp %>%
+  mutate(type_mod = case_when(
+    `Business type` == "501(c)3 – Non Profit" ~ "Non-Profit",
+    `Business type` == "501(c)6 – Non Profit Membership" ~ "Non-Profit",
+    `Business type` == "Non-Profit Childcare Center" ~ "Non-Profit",
+    `Business type` == "Non-Profit Organization" ~ "Non-Profit",
+    `Business type` == "Professional Association" ~ "Non-Profit",
+    `Business type` == "Housing Co-op" ~ "Non-Profit",
+    `Business type` == "Cooperative" ~ "Non-Profit",
+    `Business type` == "Corporation" ~ "For-profit, group",
+    `Business type` == "Limited  Liability Company(LLC)" ~ "For-profit, group",
+    `Business type` == "Limited Liability Partnership" ~ "For-profit, group",
+    `Business type` == "Qualified Joint-Venture (spouses)" ~ "For-profit, group",
+    `Business type` == "Subchapter S Corporation" ~ "For-profit, group",
+    `Business type` == "Tribal Concerns" ~ "For-profit, group",
+    `Business type` == "Joint Venture" ~ "For-profit, group",
+    `Business type` == "Trust" ~ "For-profit, group",
+    `Business type` == "Independent contractors" ~ "For-profit, Inividual",
+    `Business type` == "Single Member LLC" ~ "For-profit, Inividual",
+    `Business type` == "Sole Proprietorship" ~ "For-profit, Inividual",
+    `Business type` == "Self-Employed Individuals" ~ "For-profit, Inividual"
+  )) %>%
+  select(
+    `Amount forgiven`, Payroll, Rent, Utilities,
+    `Health Care`, `Mortgage Interest`, `Debt Interest`, `Refinancing EIDL`,
+    `Business type`, Industry, `Age of business`, `Jobs reported`, Gender,
+    Race, type_mod, `Date approved`, `Date forgiven`, `Borrower zip`) %>%
+  mutate(
+    type_mod = as_factor(type_mod),
+    Industry = as_factor(Industry),
+    `Age of business` = as_factor(`Age of business`),
+    Gender = as_factor(Gender),
+    Race = as_factor(Race)
+  ) %>%
+  na.omit() -> df2
+names(df2) <-  stringr::str_replace_all(names(df2), " ", "_")
+
+```
+
+# Descriptive Stats
+
+```{r}
+range(df2$Jobs_reported)
+# For-profit amount forgiven
+ds <- df2 %>% filter(type_mod == "For-profit, group" | type_mod == "For-profit, Individual")
+sum(ds$Amount_forgiven)
+nrow(ds)
+
+average_forgiven_prof <- 2146094075 / 20727
+average_forgiven_prof # = 103,541
+# Non-profit amount forgiven
+ds_1 <- df2 %>% filter(type_mod == "Non-Profit")
+sum(ds_1$Amount_forgiven)
+nrow(ds_1)
+average_forgiven_non <- 829725575 / 2951
+average_forgiven_non # =  281,167.6
+```
+
+We can see that these data contain 2,951 instance of a company receiving a PPP loan is consider 'Non-profit'. On average, \$281,168 were forgiven to a company labeled as such. For comparison's sake, 20,727 instances of For-profit companies receiving PPP loans with an average amount forgiven of \$103,541.
+
+```{r}
+# Number of loans forgiven for each type
+data <- data.frame(
+  category = c("Non-profit", "For-profit"),
+  amount = c(2951, 20727)
+)
+
+data$fraction <- data$amount / sum(data$amount)
+data$ymax <- cumsum(data$fraction)
+data$ymin <- c(0, head(data$ymax, n = -1))
+
+ggplot(data, aes(ymax = ymax, ymin = ymin, xmax = 4, xmin = 3, fill = category)) +
+  geom_rect() +
+  coord_polar(theta = "y") +
+  xlim(c(1, 4))
+# Dollar amount forgiven for each type
+
+data_2 <- data.frame(
+  category = c("Non-profit", "For-profit"),
+  amount = c(829725575, 2146094075)
+)
+
+data_2$fraction <- data_2$amount / sum(data_2$amount)
+data_2$ymax <- cumsum(data_2$fraction)
+data_2$ymin <- c(0, head(data_2$ymax, n = -1))
+
+ggplot(data_2, aes(ymax = ymax, ymin = ymin, xmax = 4, xmin = 3, fill = category)) +
+  geom_rect() +
+  coord_polar(theta = "y") +
+  xlim(c(1, 4))
+```
+
+# Tree
+
+
+```{r message=FALSE}
+library(tree)
+library(tidyverse)
+df <- ppp %>%
+  mutate(type_mod = case_when(
+    `Business type` == "501(c)3 – Non Profit" ~ "Non-Profit",
+    `Business type` == "501(c)6 – Non Profit Membership" ~ "Non-Profit",
+    `Business type` == "Non-Profit Childcare Center" ~ "Non-Profit",
+    `Business type` == "Non-Profit Organization" ~ "Non-Profit",
+    `Business type` == "Professional Association" ~ "Non-Profit",
+    `Business type` == "Housing Co-op" ~ "Non-Profit",
+    `Business type` == "Cooperative" ~ "Non-Profit",
+    `Business type` == "Corporation" ~ "For-profit, group",
+    `Business type` == "Limited  Liability Company(LLC)" ~ "For-profit, group",
+    `Business type` == "Limited Liability Partnership" ~ "For-profit, group",
+    `Business type` == "Qualified Joint-Venture (spouses)" ~ "For-profit, group",
+    `Business type` == "Subchapter S Corporation" ~ "For-profit, group",
+    `Business type` == "Tribal Concerns" ~ "For-profit, group",
+    `Business type` == "Joint Venture" ~ "For-profit, group",
+    `Business type` == "Trust" ~ "For-profit, group",
+    `Business type` == "Independent contractors" ~ "For-profit, Inividual",
+    `Business type` == "Single Member LLC" ~ "For-profit, Inividual",
+    `Business type` == "Sole Proprietorship" ~ "For-profit, Inividual",
+    `Business type` == "Self-Employed Individuals" ~ "For-profit, Inividual"
+  )) %>%
+  select(
+    `Amount forgiven`, Payroll, Rent, Utilities, `Loan Status`,
+    `Health Care`, `Mortgage Interest`, `Debt Interest`, `Refinancing EIDL`,
+    `Business type`, Industry, `Age of business`, `Jobs reported`, Gender,
+    Race, type_mod, `Date approved`, `Date forgiven`, `Borrower zip`) %>%
+  mutate(
+    type_mod = as_factor(type_mod),
+    Industry = as_factor(Industry),
+    `Age of business` = as_factor(`Age of business`),
+    Gender = as_factor(Gender),
+    Race = as_factor(Race)
+  ) %>%
+  na.omit() -> df2
+names(df2) <-  stringr::str_replace_all(names(df2), " ", "_")
+```
+
+```{r}
+set.seed(1234)
+Z <- sample(nrow(df2), 0.75*nrow(df2))
+tree_final <- tree(type_mod ~ ., data = df2)
+tree_final
+plot(tree_final)
+text(tree_final)
+```
+
+```{r warning=FALSE}
+set.seed(1234)
+cv_tree_ppp <- cv.tree(tree_final, K = 10, FUN = prune.misclass)
+cv_tree_ppp
+
+df <- data.frame(x = cv_tree_ppp$size, y = cv_tree_ppp$dev / nrow(df2))
+
+ggplot(aes(x, y), data = df) +
+  geom_point() +
+  labs(title = "Cross-validation error rate vs. tree size",
+       y = "CV Error Rate",
+       x = "Tree Size")
+```
+
+```{r}
+cv_tree_ppp$size[which.min(cv_tree_ppp$dev)]
+```
+
+```{r}
+new_tree <- prune.tree(tree_final, best = 5)
+new_tree
+plot(new_tree)
+text(new_tree)
+```
+
+Cross validated error rates are the lowest in trees with nodes 3 and up. The `which.min()` suggested that the lowest error came at 5 terminal nodes. This is the same size tree as the original output given to us by `tree()` .
+
+```{r}
+summary(tree_final)
+summary(new_tree)
+```
+
+```{r}
+set.seed(1234)
+Z <- sample(nrow(df2), nrow(df2)/2)
+bag <- randomForest::randomForest(type_mod ~ Jobs_reported + Industry, data = df2[Z,])
+bag
+```
+
+```{r}
+Yhat <- predict(bag, newdata = df2[-Z,])
+table(Yhat, df2$type_mod[-Z])
+mean(Yhat != df2$type_mod[-Z])
+```
+
+Our tree produced a training OOB Error Rate of 24.3%.

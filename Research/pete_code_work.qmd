@@ -1,0 +1,135 @@
+---
+title: "Peter code work"
+format: html
+editor: visual
+---
+
+```{r message=FALSE}
+library(tidyverse)
+library(car)
+library(class)
+```
+
+```{r message=FALSE}
+getwd()
+
+ppp <- read_csv("PPP details.csv")
+
+# trial
+```
+
+```{r}
+# Cleaning
+# unique(ppp$`*Loan Status`)
+# colnames(ppp)
+glimpse(ppp)
+ppp_2 <- ppp %>%
+  na.omit() %>% # Drop NA's
+  mutate(delta = ifelse(`Loan amount` - `Amount forgiven` <= 0, 1, 0)) %>% #Coerce a categorical variable to help with prediction.
+  select(Payroll, Rent, Utilities, `Health Care`, `Mortgage Interest`, `Debt Interest`, `Jobs reported`, delta, Borrower, `Business type`)
+glimpse(ppp_2$delta)
+
+summary(ppp$`Debt Interest`)
+qplot(`Amount forgiven`, data = ppp, geom = "auto")
+qplot(delta, data = ppp_2, geom = "auto")
+qplot(`*Loan Status`, data = ppp_2, geom = "auto")
+qplot(`Loan amount`, `Lender name`, data = ppp, geom = "auto")
+qplot(`Business type`, data = ppp_2, geom = "auto")
+table(ppp$Industry)
+table(ppp$`Business type`)
+# ppp_2$delta <- as.numeric(as.factor(ppp_2$delta))
+str(ppp_2)
+
+ppp_2 %>% 
+  filter(`Business type` == "Tribal Concerns")
+```
+
+# Linear Regression (ML)
+
+```{r message=FALSE}
+df <- read_csv("project_plan/PPP details.csv")
+# Data Cleaning
+df %>% 
+  select(`Loan amount`, `Amount forgiven`, Payroll, Rent, Utilities, 
+         `Health Care`, `Mortgage Interest`, `Debt Interest`, `Refinancing EIDL`,
+         `Business type`, Industry, `Age of business`, `Jobs reported`, Gender,
+         Race) %>% 
+  mutate(Industry = as_factor(Industry),
+         `Age of business` = as_factor(`Age of business`),
+         Gender = as_factor(Gender),
+         Race = as_factor(Race)) %>% 
+  na.omit() -> df2
+```
+
+```{r}
+# Setpwise selection
+library(leaps)
+set.seed(2023)
+reg_full <- lm(`Amount forgiven` ~., data = df2)
+reg_null <- lm(`Amount forgiven` ~1, data = df2)
+step_out <- step(reg_null, 
+                 scope = list(lower = reg_null, upper = reg_full),
+                 method = "forward")
+summary(step_out)
+```
+
+```{r}
+# LM model using CV
+set.seed(2023)
+lm(`Amount forgiven` ~ `Loan amount` + `Mortgage Interest` + 
+    `Jobs reported` + Rent + `Health Care` + Payroll, 
+    data = df2) -> lm_cv
+mse = mean(lm_cv$residuals^2)
+summary(lm_cv)
+mse # huge error
+
+mean(df2$`Amount forgiven`)
+
+```
+
+# KNN
+
+```{r}
+#?knn()
+set.seed(1234)
+training_pct <- .70
+# with over 25k observations this leaves about 7,500 for testing
+Z = sample(nrow(ppp_2), floor(training_pct*nrow(ppp_2)))
+
+Xtrain = ppp_2[Z,] # Our training set x
+Ytrain = ppp_2$delta[Z] # Our training set y
+Xtest = ppp_2[-Z,]
+Ytest = ppp_2$delta[-Z]
+knn(Xtrain, Xtest, Ytrain, k = 10, prob = TRUE)
+
+# Initialize data
+err_class <- rep(1:100)
+tpr <- rep(1:100)
+fpr <- rep(1:100)
+# run the loop
+for (k in 1:100){ # There is something wrong in here.....
+Yhat <- knn(Xtrain, Xtest, Ytrain, k = k)
+err_class[k] <- mean(Yhat != Ytest) # The prediction is not correct
+tpr[k] <- sum(Yhat == 1 & Ytest == 1) / sum(Ytest == 1) # TP/P
+fpr[k] <- sum(Yhat == 1 & Ytest == 0) / sum(Ytest == 0) # FP/N
+}
+ggplot(tibble(err_class, k = 1:100), aes(x = k, y = err_class))
+geom_line()
+```
+
+# Logistics Regression
+
+# LDA/QDA
+
+# Tree
+
+```{r}
+library(tree)
+```
+
+```{r}
+ppp_clean <-  ppp %>% 
+  select(Borrower, Payroll, Utilities,  Industry)
+tree_final <- tree(Industry ~ ., data = ppp_clean)
+tree_final
+```

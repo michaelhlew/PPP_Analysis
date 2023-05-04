@@ -1,0 +1,62 @@
+---
+title: "michael_LDA"
+format: html
+editor: visual
+---
+
+```{r}
+library(tidyverse)
+library(MASS)
+library(boot)
+library(leaps)
+library(glmnet)
+library(pls)
+
+# using Pete's ppp2a
+
+read_csv("PPP details.csv") %>% 
+  mutate(business_type_modified = case_when(
+    `Business type` == "501(c)3 – Non Profit" ~ "Non-Profit",
+    `Business type` == "501(c)6 – Non Profit Membership" ~ "Non-Profit",
+    `Business type` == "Non-Profit Childcare Center" ~ "Non-Profit",
+    `Business type` == "Non-Profit Organization" ~ "Non-Profit",
+    `Business type` == "Professional Association" ~ "Non-Profit",
+    `Business type` == "Housing Co-op" ~ "Non-Profit",
+    `Business type` == "Cooperative" ~ "Non-Profit",
+    `Business type` == "Corporation" ~ "For-profit, group",
+    `Business type` == "Limited  Liability Company(LLC)" ~ "For-profit, group",
+    `Business type` == "Limited Liability Partnership" ~ "For-profit, group",
+    `Business type` == "Qualified Joint-Venture (spouses)" ~ "For-profit, group", 
+    `Business type` == "Subchapter S Corporation" ~ "For-profit, group",
+    `Business type` == "Tribal Concerns" ~ "For-profit, group",
+    `Business type` == "Joint Venture" ~ "For-profit, group",
+    `Business type` == "Trust" ~ "For-profit, group",
+    `Business type` == "Independent contractors" ~ "For-profit, Inividual",
+    `Business type` == "Single Member LLC" ~ "For-profit, Inividual",
+    `Business type` == "Sole Proprietorship" ~ "For-profit, Inividual",
+    `Business type` == "Self-Employed Individuals" ~ "For-profit, Inividual"
+  )) %>% 
+  na.omit() %>% 
+  janitor::clean_names() -> ppp
+```
+
+```{r}
+
+lda_output <- lda(business_type_modified ~ gender + industry 
+      + age_of_business + race + jobs_reported + loan_amount, data = ppp, CV = T)
+
+# create data frame with classifications and true values
+lda_df <- tibble(gender = ppp$gender, 
+                 industry = ppp$industry,
+                 age_of_business = ppp$age_of_business, 
+                 race = ppp$race, 
+                 jobs_reported = ppp$jobs_reported, 
+                 loan_amount = ppp$loan_amount, 
+                 class = lda_output$class) |> 
+  rownames_to_column(var = "ID") |> 
+  arrange(as.numeric(ID)) |> 
+  bind_cols(true_q = ppp$business_type_modified)
+
+round(100 * sum(lda_df$class != lda_df$true_q) / nrow(ppp), 2) #LDA Error Rate
+
+```

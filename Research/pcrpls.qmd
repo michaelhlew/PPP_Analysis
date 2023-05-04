@@ -1,0 +1,160 @@
+---
+title: "PCR and PLS Margaret"
+format: html
+editor: visual
+---
+
+```{r message=FALSE}
+library(tidyverse)
+library(class)
+library(leaps)
+library(tree)
+library(pls)
+ppp <- read_csv("PPP details.csv")
+```
+
+```{r}
+glimpse(ppp)
+df <- ppp %>%
+  mutate(type_mod = case_when(
+    `Business type` == "501(c)3 – Non Profit" ~ "Non-Profit",
+    `Business type` == "501(c)6 – Non Profit Membership" ~ "Non-Profit",
+    `Business type` == "Non-Profit Childcare Center" ~ "Non-Profit",
+    `Business type` == "Non-Profit Organization" ~ "Non-Profit",
+    `Business type` == "Professional Association" ~ "Non-Profit",
+    `Business type` == "Housing Co-op" ~ "Non-Profit",
+    `Business type` == "Cooperative" ~ "Non-Profit",
+    `Business type` == "Corporation" ~ "For-profit, group",
+    `Business type` == "Limited  Liability Company(LLC)" ~ "For-profit, group",
+    `Business type` == "Limited Liability Partnership" ~ "For-profit, group",
+    `Business type` == "Qualified Joint-Venture (spouses)" ~ "For-profit, group",
+    `Business type` == "Subchapter S Corporation" ~ "For-profit, group",
+    `Business type` == "Tribal Concerns" ~ "For-profit, group",
+    `Business type` == "Joint Venture" ~ "For-profit, group",
+    `Business type` == "Trust" ~ "For-profit, group",
+    `Business type` == "Independent contractors" ~ "For-profit, Inividual",
+    `Business type` == "Single Member LLC" ~ "For-profit, Inividual",
+    `Business type` == "Sole Proprietorship" ~ "For-profit, Inividual",
+    `Business type` == "Self-Employed Individuals" ~ "For-profit, Inividual"
+  )) %>%
+  select(
+    `Amount forgiven`, Payroll, Rent, Utilities,
+    `Health Care`, `Mortgage Interest`, `Debt Interest`, `Refinancing EIDL`,
+    `Business type`, Industry, `Age of business`, `Jobs reported`, Gender,
+    Race, type_mod, `Date approved`, `Date forgiven`, `Borrower zip`, `*Loan Status`) %>%
+  mutate(
+    type_mod = as_factor(type_mod),
+    Industry = as_factor(Industry),
+    `Age of business` = as_factor(`Age of business`),
+    Gender = as_factor(Gender),
+    Race = as_factor(Race)
+  ) %>%
+  na.omit() -> df2
+names(df2) <-  stringr::str_replace_all(names(df2), " ", "_")
+#names(df2) <- stringr::str_replace_all(names(df2), "*", "_")
+#glimpse(df2)
+```
+
+```{r}
+# Cleaning
+# unique(ppp$`*Loan Status`)
+# colnames(ppp)
+glimpse(ppp)
+ppp_2 <- ppp %>%
+  na.omit() %>% # Drop NA's
+  mutate(delta = ifelse(`Loan amount` - `Amount forgiven` <= 0, 1, 0)) %>% #Coerce a categorical variable to help with prediction.
+  select(Payroll, Rent, Utilities, `Health Care`, `Mortgage Interest`, `Debt Interest`, `Jobs reported`, delta, Borrower)
+glimpse(ppp_2)
+
+ppp_3 <- ppp %>%
+  na.omit()  # Drop NA's
+  
+
+
+# ppp_2$delta <- as.numeric(as.factor(ppp_2$delta))
+ str(ppp_2)
+```
+
+# Linear Regression
+
+```{r}
+set.seed(123)
+x_train <- stats::model.matrix(lm(delta ~ ., data = ppp_2[Z, ]))
+y_train <- ppp_2$delta[Z]
+x_test <-  stats::model.matrix(lm(delta ~ ., data = ppp_2[-Z, ]))                  
+y_test <- ppp_2$delta[-Z]
+
+lr <- glmnet::glmnet(x_train, y_train) 
+lr_cv <- glmnet::cv.glmnet(x_train, y_train)
+best_lambda_lr <- lr_cv$lambda.1se
+plot(lr_cv)
+coef(lr_cv)
+
+# Lasso Regression Prediction MSE
+lr_pred <- predict(lr, s = best_lambda_lr, newx = x_test)
+mean((lr_pred - y_test)^2)
+```
+
+# PCR
+
+```{r}
+skimr::skim(df2)
+```
+
+```{r}
+
+
+
+set.seed(1234)
+pcr_reg <- pcr(`Loan amount` ~ `Amount forgiven`+ `*Loan Status`+ `Date approved`+ `Date forgiven`+ Payroll+Rent+Utilities+`Health Care`+ `Mortgage Interest`+ `Debt Interest`+ `Refinancing EIDL`+`Lender name`+ `Business type`+ Industry+ `Age of business`+ `Borrower city`, data = df2, scale = TRUE,
+               validation = "CV", na.exclude(ppp))
+summary(pcr_reg)
+
+
+set.seed(1234)
+pcr_reg2 <- pcr(Amount_forgiven ~  `*Loan_Status`+`Date_approved`+ `Date_forgiven`+Payroll+Rent+Utilities+`Health_Care`+`Mortgage_Interest`+ `Debt_Interest`+ `Refinancing_EIDL`+ Industry+ `Age_of_business`, data = df2, scale = TRUE,
+               validation = "CV")
+summary(pcr_reg2)
+
+
+
+```
+
+```{r}
+#this one works 
+set.seed(1234)
+pcr_reg2 <- pcr(Amount_forgiven ~ `*Loan_Status`+ `Date_approved`+ `Date_forgiven`+ Payroll+Rent+Utilities+`Health_Care`+`Mortgage_Interest`+  `Refinancing_EIDL`+ Industry, data = df2, scale = TRUE,
+               validation = "CV")
+summary(pcr_reg2)
+
+#no business type
+#doesn't like debt interest- a way to deal with?
+#no lender names
+```
+
+```{r}
+validationplot(pcr_reg2)
+```
+
+Using PRC the model with 25 components (not predictors becasue of the incorporation of categorical varibles)has the lowest MSRE of which explains 58.71% of the variation in the amount of the loan forgiven.
+
+PLS
+
+```{r}
+set.seed(1234)
+pls_reg <- plsr(`Amount forgiven` ~ `*Loan Status`+ `Date approved`+ `Date forgiven`+Payroll+Rent+Utilities+`Health Care`+`Mortgage Interest`+ `Debt Interest`+ `Refinancing EIDL`+ Industry+ `Age of business`, data = ppp_3, scale = TRUE, ncomp = 34,
+                validation = "CV")
+summary(pls_reg)
+
+
+set.seed(1234)
+pcr_reg2 <- plsr(Amount_forgiven ~ `*Loan_Status`+ `Date_approved`+ `Date_forgiven`+ Payroll+Rent+Utilities+`Health_Care`+`Mortgage_Interest`+  `Refinancing_EIDL`+ Industry, data = df2, scale = TRUE,
+               validation = "CV")
+summary(pcr_reg2)
+```
+
+```{r}
+validationplot(pls_reg)
+```
+
+Using PLS the model with 25 components (not predictors because of the incorporation of categorical variables)has the lowest MSRE of 42836 but I would recommend the model with only 11 components as this has a MSRE of 42837 and explains more of the variation in loan forgiveness (98.53%).

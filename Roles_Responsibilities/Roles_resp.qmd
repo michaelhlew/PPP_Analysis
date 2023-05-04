@@ -1,0 +1,37 @@
+---
+title: "Group Roles & Responsibilities <DRAFT>"
+format: html
+editor: visual
+---
+
+## Michael Lewis:
+
+-   Found data set, Tidy Data
+
+-   LDA, Step wise & Lasso Regression
+
+-   Selection and what went into cleaning of the data
+
+## Pete Magee
+
+-   Tidy Data
+
+-   Descriptive statistics, Tree Prediction Analysis
+
+-   Presentation/Executive Summary
+
+## Margaret Willis
+
+-   PCA, PLS
+
+-   Formatting presentation, Identification and description of stakeholders, as well as ethical considerations.
+
+-   Organized team Zoom Sessions
+
+## Ethan Wong
+
+-   Ridge Regression, QDA, KNN, and cross-validation
+
+-   Coordinated branches on Git Repo, compiled code into one file
+
+-   Identification and description of stakeholders, as well as ethical considerations.

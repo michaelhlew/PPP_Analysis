@@ -1,0 +1,55 @@
+---
+title: "PPP clean data"
+format: html
+editor: visual
+---
+
+```{r message=FALSE}
+library(tidyverse)
+library(class)
+library(leaps)
+library(tree)
+ppp <- read_csv("PPP details.csv")
+```
+
+```{r}
+glimpse(ppp)
+df <- ppp %>%
+  mutate(type_mod = case_when(
+    `Business type` == "501(c)3 – Non Profit" ~ "Non-Profit",
+    `Business type` == "501(c)6 – Non Profit Membership" ~ "Non-Profit",
+    `Business type` == "Non-Profit Childcare Center" ~ "Non-Profit",
+    `Business type` == "Non-Profit Organization" ~ "Non-Profit",
+    `Business type` == "Professional Association" ~ "Non-Profit",
+    `Business type` == "Housing Co-op" ~ "Non-Profit",
+    `Business type` == "Cooperative" ~ "Non-Profit",
+    `Business type` == "Corporation" ~ "For-profit, group",
+    `Business type` == "Limited  Liability Company(LLC)" ~ "For-profit, group",
+    `Business type` == "Limited Liability Partnership" ~ "For-profit, group",
+    `Business type` == "Qualified Joint-Venture (spouses)" ~ "For-profit, group",
+    `Business type` == "Subchapter S Corporation" ~ "For-profit, group",
+    `Business type` == "Tribal Concerns" ~ "For-profit, group",
+    `Business type` == "Joint Venture" ~ "For-profit, group",
+    `Business type` == "Trust" ~ "For-profit, group",
+    `Business type` == "Independent contractors" ~ "For-profit, Inividual",
+    `Business type` == "Single Member LLC" ~ "For-profit, Inividual",
+    `Business type` == "Sole Proprietorship" ~ "For-profit, Inividual",
+    `Business type` == "Self-Employed Individuals" ~ "For-profit, Inividual"
+  )) %>%
+  select(
+    `Amount forgiven`, Payroll, Rent, Utilities, `Loan Status`,
+    `Health Care`, `Mortgage Interest`, `Debt Interest`, `Refinancing EIDL`,
+    `Business type`, Industry, `Age of business`, `Jobs reported`, Gender,
+    Race, type_mod, `Date approved`, `Date forgiven`, `Borrower zip`) %>%
+  mutate(
+    type_mod = as_factor(type_mod),
+    Industry = as_factor(Industry),
+    `Age of business` = as_factor(`Age of business`),
+    Gender = as_factor(Gender),
+    Race = as_factor(Race)
+  ) %>%
+  na.omit() -> df2
+names(df2) <-  stringr::str_replace_all(names(df2), " ", "_")
+#names(df2) <- stringr::str_replace_all(names(df2), "*", "_")
+#glimpse(df2)
+```

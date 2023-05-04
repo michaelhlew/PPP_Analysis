@@ -1,0 +1,414 @@
+---
+title: "Presentation Code Compiled"
+format: html
+editor: visual
+---
+
+## Data
+
+```{r packages, message=FALSE}
+library(tidyverse)
+library(car)
+library(class)
+library(leaps)
+library(glmnet)
+library(pls)
+library(e1071)
+library(tree)
+library(randomForest)
+library(caret)
+```
+
+```{r load, message=FALSE}
+df <- read_csv("PPP details.csv")
+glimpse(df)
+```
+
+### Cleaning
+
+```{r cleaning}
+ppp <- df %>%
+  mutate(type_mod = case_when(
+    `Business type` == "501(c)3 – Non Profit" ~ "Non-Profit",
+    `Business type` == "501(c)6 – Non Profit Membership" ~ "Non-Profit",
+    `Business type` == "Non-Profit Childcare Center" ~ "Non-Profit",
+    `Business type` == "Non-Profit Organization" ~ "Non-Profit",
+    `Business type` == "Professional Association" ~ "Non-Profit",
+    `Business type` == "Housing Co-op" ~ "Non-Profit",
+    `Business type` == "Cooperative" ~ "Non-Profit",
+    `Business type` == "Corporation" ~ "For-profit, group",
+    `Business type` == "Limited  Liability Company(LLC)" ~ "For-profit, group",
+    `Business type` == "Limited Liability Partnership" ~ "For-profit, group",
+    `Business type` == "Qualified Joint-Venture (spouses)" ~ "For-profit, group",
+    `Business type` == "Subchapter S Corporation" ~ "For-profit, group",
+    `Business type` == "Tribal Concerns" ~ "For-profit, group",
+    `Business type` == "Joint Venture" ~ "For-profit, group",
+    `Business type` == "Trust" ~ "For-profit, group",
+    `Business type` == "Independent contractors" ~ "For-profit, Individual",
+    `Business type` == "Single Member LLC" ~ "For-profit, Individual",
+    `Business type` == "Sole Proprietorship" ~ "For-profit, Individual",
+    `Business type` == "Self-Employed Individuals" ~ "For-profit, Individual"
+  )) %>%
+  select(
+    `Amount forgiven`, Payroll, Rent, Utilities,
+    `Health Care`, `Mortgage Interest`, `Debt Interest`, Gender, Race, `Refinancing EIDL`, Industry,`Jobs reported`, type_mod, `*Loan Status`, `Date approved`, `Date forgiven`) %>%
+  mutate(
+    type_mod = as_factor(type_mod),
+    Industry = as_factor(Industry),
+    Gender = as_factor(Gender),
+    Race = as_factor(Race)
+  ) %>%
+  na.omit()
+names(ppp) <-  stringr::str_replace_all(names(ppp), " ", "_")
+glimpse(ppp)
+
+```
+
+### Exploration
+
+```{r explore}
+summary(ppp)
+car::vif(lm(Amount_forgiven ~ ., ppp))
+
+ppp |>
+  ggplot(aes(x = type_mod)) +
+    geom_bar() +
+    ggtitle("Distribution of Business Type") +
+    xlab("Business Type")
+
+ppp |>
+  ggplot(aes(x = Amount_forgiven)) +
+    geom_histogram() +
+    ggtitle("Distribution of Amount Forgiven") +
+    xlab("Amount Forgiven")
+
+#remove 3 variables b/c too many levels
+#GGally::ggpairs(ppp %>% select(-Business_type, -Industry, -Borrower_zip))
+
+ppp |>
+  ggplot(aes(x = type_mod, y = Health_Care)) +
+    geom_boxplot()
+```
+
+## Regression
+
+### Stepwise
+
+```{r stepwise}
+#forward using type_mod
+set.seed(1234)
+reg_full <- lm(Amount_forgiven ~ ., data = ppp)
+reg_null <- lm(Amount_forgiven ~ 1, data = ppp)
+step_out_f <- step(reg_null, 
+                    scope = list(lower = reg_null, upper = reg_full),
+                    method = "forward",
+                    trace = 0)
+
+#forward results
+summary(step_out_f)
+```
+
+The stepwise regression found that payroll, rent, utilities, loan status, healthcare, debt interest, mortgage interest, jobs reported, refinancing EIDL, and business type modified were significant.
+
+```{r stepwise_mse}
+
+set.seed(1234)
+reg_k10 <- glm(Amount_forgiven ~ Payroll + Rent + Utilities + Health_Care + Debt_Interest + Mortgage_Interest + Jobs_reported + type_mod + Date_forgiven + Date_approved, data = ppp)
+regCVk10 <- boot::cv.glm(ppp, reg_k10, K = 10)
+regCVk10$delta[2]
+```
+
+The MSE for stepwise is 22106947766.
+
+### LASSO and Ridge
+
+```{r ridge}
+X <- model.matrix(lm(Amount_forgiven ~ ., ppp))[,-1]
+
+set.seed(1234)
+ridge_ppp <- cv.glmnet(X, ppp$Amount_forgiven, alpha = 0)
+plot(ridge_ppp)
+ridge_ppp$lambda.min
+min(ridge_ppp$cvm)
+```
+
+The MSE for ridge regression is 3777754837.
+
+```{r lasso}
+set.seed(1234)
+lasso_ppp <- cv.glmnet(X, ppp$Amount_forgiven, alpha = 1)
+plot(lasso_ppp)
+lasso_ppp$lambda.1se
+min(lasso_ppp$cvm)
+coef(lasso_ppp)
+```
+
+The MSE for LASSO is 2002900584. The non-zero predictors are payroll, rent, utilities, and health care.
+
+### PCR and PLS
+
+```{r pca}
+#screeplot
+screeplot(
+  prcomp(
+    model.matrix(lm(Amount_forgiven ~ ., data = ppp))
+  )
+) #indicates need to scale
+
+#PCR
+names(ppp) <-  stringr::str_replace_all(names(ppp), " ", "_")
+set.seed(1234)
+pcr_ppp <-  pcr(Amount_forgiven ~ ., 
+                data = ppp, 
+                scale = TRUE,
+                validation = "CV")
+#summary(pcr_ppp)
+which.min(as.numeric(MSEP(pcr_ppp, estimate = "CV")$val)) - 1
+min(as.numeric(MSEP(pcr_ppp, estimate = "CV")$val))
+
+#PLS
+set.seed(1234)
+pls_ppp <-  plsr(Amount_forgiven ~ ., 
+                data = ppp,
+                scale = TRUE,
+                validation = "CV")
+#summary(pls_ppp)
+which.min(as.numeric(MSEP(pls_ppp, estimate = "CV")$val)) - 1
+min(as.numeric(MSEP(pls_ppp, estimate = "CV")$val))
+```
+
+The MSE for PCR is 2041329571 with 40 principal components. The MSE for PLS is 2040856908 with 11 principal components.
+
+## Classification
+
+```{r classification_df}
+ppp_c <- df %>%
+  mutate(type_mod = case_when(
+    `Business type` == "501(c)3 – Non Profit" ~ "Non-Profit",
+    `Business type` == "501(c)6 – Non Profit Membership" ~ "Non-Profit",
+    `Business type` == "Non-Profit Childcare Center" ~ "Non-Profit",
+    `Business type` == "Non-Profit Organization" ~ "Non-Profit",
+    `Business type` == "Professional Association" ~ "Non-Profit",
+    `Business type` == "Housing Co-op" ~ "Non-Profit",
+    `Business type` == "Cooperative" ~ "Non-Profit",
+    `Business type` == "Corporation" ~ "For-profit, group",
+    `Business type` == "Limited  Liability Company(LLC)" ~ "For-profit, group",
+    `Business type` == "Limited Liability Partnership" ~ "For-profit, group",
+    `Business type` == "Qualified Joint-Venture (spouses)" ~ "For-profit, group",
+    `Business type` == "Subchapter S Corporation" ~ "For-profit, group",
+    `Business type` == "Tribal Concerns" ~ "For-profit, group",
+    `Business type` == "Joint Venture" ~ "For-profit, group",
+    `Business type` == "Trust" ~ "For-profit, group",
+    `Business type` == "Independent contractors" ~ "For-profit, Individual",
+    `Business type` == "Single Member LLC" ~ "For-profit, Individual",
+    `Business type` == "Sole Proprietorship" ~ "For-profit, Individual",
+    `Business type` == "Self-Employed Individuals" ~ "For-profit, Individual"
+  )) %>%
+  select(
+    `Amount forgiven`, Payroll, Rent, Utilities,
+    `Health Care`, `Mortgage Interest`, `Debt Interest`, `Refinancing EIDL`, Industry,`Jobs reported`, type_mod, `*Loan Status`, `Date approved`, `Date forgiven`, Gender, Race, `Loan amount`, `Age of business`) %>%
+  mutate(
+    type_mod = as_factor(type_mod),
+    Industry = as_factor(Industry),
+    Gender = as_factor(Gender),
+    Race = as_factor(Race),
+    `Age of business` = as_factor(`Age of business`)
+  ) %>%
+  na.omit()
+names(ppp_c) <-  stringr::str_replace_all(names(ppp_c), " ", "_")
+
+ppp_c <- ppp_c |> select(type_mod, 
+                         Gender, 
+                         Industry, 
+                         Age_of_business,
+                         Race, 
+                         Jobs_reported, 
+                         Loan_amount)
+
+```
+
+### KNN
+
+```{r knn}
+ppp_k <- ppp_c |> mutate(
+  Gender = as.numeric(Gender),
+  Race = as.numeric(Race),
+  Age_of_business = as.numeric(Age_of_business),
+  Industry = as.numeric(Industry)
+)
+
+#?knn()
+set.seed(1234)
+training_pct <- .75
+Z = sample(nrow(ppp_k), floor(training_pct*nrow(ppp_k)))
+Xtrain = ppp_k[Z, c("Race", "Gender", "Age_of_business", "Industry", "Jobs_reported", "Loan_amount")] # Our training set x
+Ytrain = ppp_k$type_mod[Z] # Our training set y
+Xtest = ppp_k[-Z, c("Race", "Gender", "Age_of_business", "Industry", "Jobs_reported", "Loan_amount")]
+Ytest = ppp_k$type_mod[-Z]
+Yhat <- knn(Xtrain, Xtest, Ytrain, k = 10, prob = TRUE)
+
+table(Ytest, Yhat)
+1 - (table(Ytest, Yhat)[1, 1] + table(Ytest, Yhat)[2, 2] + table(Ytest, Yhat)[3, 3])/((1-training_pct)*nrow(ppp_k))
+
+# Initialize data
+err_class <- rep(1:50)
+# run the loop
+for (k in 1:50){
+Yhat <- knn(Xtrain, Xtest, Ytrain, k = k)
+err_class[k] <- mean(Yhat != Ytest)
+}
+ggplot(tibble(err_class, k = 1:50), aes(x = k, y = err_class)) +
+  geom_line()
+
+which.min(err_class)
+err_class[which.min(err_class)]
+```
+
+Optimal *k* is 39 with an error rate of 32.06%
+
+```{r knn_cv}
+# 10 K-fold CV on KNN
+set.seed(1234)
+
+trControl <- trainControl(method  = "cv",
+                          number  = 10)
+
+fit <- train(type_mod ~ .,
+             method = "knn",
+             tuneGrid = expand.grid(k = 1:50),
+             trControl = trControl,
+             metric = "Accuracy",
+             data = ppp_k)
+
+fit$results %>% arrange(desc(Accuracy)) # first row is highest accuracy 
+```
+
+### LDA and QDA
+
+```{r lda}
+lda_output <- MASS::lda(type_mod ~ Gender + Industry 
+      + Age_of_business + Race + Jobs_reported + Loan_amount, data = ppp_c, 
+      CV = T)
+
+# create data frame with classifications and true values
+lda_df <- tibble(Gender = ppp_c$Gender, 
+                 Industry = ppp_c$Industry,
+                 Age_of_business = ppp_c$Age_of_business, 
+                 Race = ppp_c$Race, 
+                 Jobs_reported = ppp_c$Jobs_reported, 
+                 Loan_amount = ppp_c$Loan_amount, 
+                 Class = lda_output$class) |> 
+  rownames_to_column(var = "ID") |> 
+  arrange(as.numeric(ID)) |> 
+  bind_cols(true_q = ppp_c$type_mod)
+
+#LDA Error Rate
+round(100 * sum(lda_df$Class != lda_df$true_q) / nrow(ppp_c), 2) 
+
+```
+
+The LDA error rate is 35.76%
+
+```{r qda}
+qda_output <-  MASS::qda(type_mod ~ Gender + Jobs_reported + Loan_amount, data = ppp_c, CV = TRUE)
+
+qda_df <- tibble(Gender = ppp_c$Gender, 
+                 Jobs_reported = ppp_c$Jobs_reported, 
+                 Loan_amount = ppp_c$Loan_amount, 
+                 Class = qda_output$class) |> 
+  rownames_to_column(var = "ID") |> 
+  arrange(as.numeric(ID)) |> 
+  bind_cols(true_q = ppp_c$type_mod)
+
+#QDA Error Rate
+round(100 * sum(qda_df$Class != qda_df$true_q) / nrow(ppp_c), 2) 
+```
+
+The QDA error rate is 51.88%. Race, industry, and age of business had to removed due to rank error. The rank error was investigated below.
+
+```{r qda_error}
+table(filter(ppp_c, type_mod == "Non-Profit")$Race)
+```
+
+### Tree
+
+```{r initial_tree}
+set.seed(1234)
+Z <- sample(nrow(ppp_c), 0.75*nrow(ppp_c))
+tree_final <- tree(type_mod ~ ., data = ppp_c)
+tree_final
+plot(tree_final)
+text(tree_final)
+```
+
+```{r tree_cv, warning=FALSE}
+set.seed(1234)
+cv_tree_ppp <- cv.tree(tree_final, K = 10, FUN = prune.misclass)
+cv_tree_ppp
+df <- data.frame(x = cv_tree_ppp$size, y = cv_tree_ppp$dev / nrow(ppp_c))
+ggplot(aes(x, y), data = df) +
+  geom_point() +
+  labs(title = "Cross-validation error rate vs. tree size",
+       y = "CV Error Rate",
+       x = "Tree Size")
+```
+
+```{r tree_nodes}
+cv_tree_ppp$size[which.min(cv_tree_ppp$dev)]
+```
+
+```{r tree_prune}
+new_tree <- prune.tree(tree_final, best = 5)
+new_tree
+plot(new_tree)
+text(new_tree)
+new_tree <- prune.tree(tree_final, best = 3)
+new_tree
+plot(new_tree)
+text(new_tree)
+```
+
+Cross validated error rates are the lowest in trees with nodes 3 and up. The `which.min()` suggested that the lowest error came at 5 terminal nodes. This is the same size tree as the original output given to us by `tree()` . 2 nodes can be pruned because they have the same prediction after the node splits. So our final tree has 3 nodes.
+
+```{r tree_final}
+summary(tree_final)
+summary(new_tree)
+```
+
+```{r randomForest}
+set.seed(1234)
+Z <- sample(nrow(ppp_c), nrow(ppp_c)/2)
+bag <- randomForest::randomForest(type_mod ~ Jobs_reported + Industry, data = ppp_c[Z,])
+bag
+```
+
+```{r matrix}
+Yhat <- predict(bag, newdata = ppp_c[-Z,])
+table(Yhat, ppp_c$type_mod[-Z])
+mean(Yhat != ppp_c$type_mod[-Z])
+```
+
+Our tree produced a training OOB Error Rate of 24.36%.
+
+## Comparing Methods
+
+### Regression
+
+| Method   | MSE        | Predictors |
+|----------|------------|------------|
+| Stepwise | 2106947766 | 12         |
+| Ridge    | 3777754837 | 40         |
+| LASSO    | 2002900584 | 4          |
+| PCR      | 2041329571 | 40         |
+| PLS      | 2040856908 | 11         |
+
+### Classification
+
+| Method | Error Rate |
+|--------|------------|
+| KNN    | 32.3%      |
+| LDA    | 35.76%     |
+| QDA\*  | 55.88%     |
+| Tree   | 24.36%     |
+
+\*Removed `Race`, `Industry`, and `Age of Business` due to rank deficiency.
